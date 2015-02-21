@@ -1,0 +1,144 @@
+# Which Storm Categories Are Most Harmful?
+
+## Synopsis
+
+For this exercise, we will be using the Storm Data data set captured by the National Weather Service.  Our goal is to figure out two questions:
+
+* Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?
+
+* Across the United States, which types of events have the greatest economic consequences?
+
+At a high level, we will attempt to lump the storm occurrences into categories, aggregate the categories, and then graph them to view notable data points.
+
+## Data Processing
+
+First, we need to load and process the data to prepare it for further analysis.  In this analysis, we will use the dplyr package to reshape the data, and the ggplot2 package to plot the data.  We will also use the bzfile function to unzip the file directly.
+
+
+```{r Preprocess}
+setwd("~/R Working Directory/RepResearchProjTwo")
+library(dplyr)
+library(ggplot2)
+```
+```{r Load Data, cache=T}
+weather <- read.csv(bzfile("repdata-data-StormData.csv.bz2"), stringsAsFactors = F)
+```
+
+After the file is read into R, we will change the dates from characters to the date type
+```{r Change to Date, echo = T}
+weather$BGN_DATE <- as.Date(weather$BGN_DATE,format = "%m/%d/%Y %H:%M:%S")
+weather$END_DATE <- as.Date(weather$END_DATE, format = "%m/%d/%Y %H:%M:%S")
+```
+
+Unfortunately, the EVTYPE field is riddled with data that is not consistent.  Using the grep function, we will search for patterns, and rename these attributes based on a more common schema.
+
+```{r Rename Type, echo=T}
+weather[grep("[Ww][Ii][Nn][Dd]", 
+             weather$EVTYPE),"EVTYPE"] <- "Wind"
+weather[grep("AVALAN", 
+             weather$EVTYPE),"EVTYPE"] <- "Avalanche"
+weather[grep("[Tt][Hh][Uu][Nn][Dd][Ee]|LIGHTNING|Lightning|Torrential|Rain|RAIN|TROPICAL|Tropical|TYPHOON|HEAVY PRECIPITATION|HEAVY SHOWER|LIGHTING|LIGNTNING|MICROBURST|Microburst", 
+             weather$EVTYPE),"EVTYPE"] <- "Thunderstorm/Heavy Rain"
+weather[grep("[Ff][Ll][Oo][Oo][Dd]|FLD|DROWNING|HIGH WATER|RISING WATER", 
+             weather$EVTYPE),"EVTYPE"] <- "Flood"
+weather[grep("[Dd][Uu][Ss][Tt]", 
+             weather$EVTYPE), "EVTYPE"] <- "Dust"
+weather[grep("[Hh][Aa][Ii][Ll]", 
+             weather$EVTYPE), "EVTYPE"] <- "Hail"
+weather[grep("[Ss][Nn][Oo][Ww]|BLIZZARD|Blizzard|WINTER|Winter|WINTRY|Wintry|MIXED|SLEET|Sleet|HEAVY MIX|Mixed Precipitation", 
+             weather$EVTYPE),"EVTYPE"] <- "Severe Snow"
+weather[grep("[Hh][Uu][Rr][Rr][Ii][Cc][Aa][Nn][Ee]", 
+             weather$EVTYPE), "EVTYPE"] <- "Hurricane"
+weather[grep("[Ww][Aa][Tt][Ee][Rr][Ss][Pp][Oo][Uu][Tt]", 
+             weather$EVTYPE), "EVTYPE"] <- "Waterspout"
+weather[grep("[Ff][Ii][Rr][Ee]", 
+             weather$EVTYPE), "EVTYPE"] <- "Fire"
+weather[grep("Freezing|FREEZING|ICE|Ice|ICY|GLAZE|Glaze", 
+             weather$EVTYPE), "EVTYPE"] <- "Ice"
+weather[grep("Frost|FROST|Freeze|FREEZE|COLD|Cold|HYPOTHERMIA|Hypothermia|EXPOSURE|LOW TEMPERATURE", 
+             weather$EVTYPE), "EVTYPE"] <- "Extreme Cold"
+weather[grep("Heat Wave|HEAT WAVE|EXCESSIVE HEAT|EXTREME HEAT|HEAT|WARM WEATHER", 
+             weather$EVTYPE), "EVTYPE"] <- "Heat Wave"
+weather[grep("Drought|DROUGHT|DRY|Dry", weather$EVTYPE), "EVTYPE"] <- "Drought"
+weather[grep("MUDSLIDE|Mudslide|LANDSLIDE|Landslide|MUD|SLIDE|SLIDES|Landslump|ROCK SLIDE", 
+             weather$EVTYPE),"EVTYPE"] <- "Mudslide/Landslide"
+weather[grep("TORNADO|Tornado|FUNNEL|Funnel|Landspout|GUSTNADO|TORNDAO", 
+             weather$EVTYPE), "EVTYPE"] <- "Tornado"
+weather[grep("SEAS|Seas|SURF|Surf|WAVE|Wave|SWELL|RIP|SURGE|COASTAL|Coastal|MARINE|Marine|HIGH TIDES", 
+             weather$EVTYPE), "EVTYPE"] <- "Heavy Surf"
+weather[grep("FOG", 
+             weather$EVTYPE), "EVTYPE"] <- "Fog"
+```
+
+Now we are ready to aggregate the data. Before we aggregate, we will make a new column, Casualties.  Casualties will contain the sum of all injuries and fatalities.  We will then use dply to filter out all records that do not contain any casualties and place that into a new data frame, hazard.
+
+We will aggregate the data in the hazard data frame by grouping it by the EVTYPE field.  In order to see the most hazardous storms, we will take the sum of the Casualties field.  Another point of interest may be how often these storms happen.  To account for this, we include another field, n.  N will describe how many occurrences this group has.
+
+```{r Hazardous, echo = T}
+weather$Casualties <- weather$FATALITIES + weather$INJURIES
+hazard <- weather %>%
+    filter(Casualties > 0)
+
+hazardAg <- hazard %>%
+    group_by(EVTYPE) %>%
+    select(Casualties) %>%
+    summarise(Casualties = sum(Casualties),
+              n = n())
+
+
+```    
+
+Now it is time to examine the damage caused by these storms.  Luckily we have already assigned more appropriate information to the EVTYPE field, so we know that the data is consistent.  Similar to the process described above, we will filter out all occurrences where there was no damage and place that into a new data frame (costly.)  Then we will use dplyr to group the data frame by EVTYPE, and add up the damage.  Then we will filter out groups without significant damage, which we have set at 1000.
+
+```{r Costly, echo = T}
+costly <- weather %>%
+    filter(PROPDMG >0)
+
+costlyAg <- costly %>%
+    group_by(EVTYPE) %>%
+    summarise(Damage = sum(PROPDMG),
+              n = n()) %>%
+    filter(Damage>1000)
+```
+
+## Results
+
+### How Hazardous is Each Storm Type?
+
+Now it is time to see our results.  Let us first look at our first question, "Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health?"
+
+We will use the ggplot2 package to view the data.  For our purposes, I want to see two things: how often does an EVTYPE occur, and how much total casualties has an EVTYPE caused.  I will use a scatter plot to view this, using the number of casualties on the y axis, and the number of occurrences on the x axis.  I've also noticed that both of these columns vary greatly, so I will use the log10 scale on both axes.
+
+```{r Hazard Results, echo=T}
+ggplot(hazardAg, aes(x = n, y = Casualties, color = EVTYPE))+ 
+    geom_text(aes(label = EVTYPE), hjust = 1, vjust = 1) +
+    geom_point() +
+    theme(legend.position = "none") +
+    scale_y_log10() + scale_x_log10() +
+    xlab(label = "Number of Occurences (log Scale)") +
+    ylab(label = "Number of Casualties (log Scale)") 
+```
+
+Clearly, municipalities need to be most concerned with Tornadoes, as they have caused the most casualties and occur the most often.  Another safety concern for coastal regions could be heavy surf.
+
+### How Expensive is Each Storm Type?
+
+What about the second question: Across the United States, which types of events have the greatest economic consequences?
+
+For this question, we will use a bar plot to examine which EVTYPE has the most cumulative damage.
+
+```{r Costly Results, echo = T}
+ggplot(costlyAg, aes(x = EVTYPE, y = Damage, color = EVTYPE))+ 
+    geom_bar(stat = "identity") +
+    theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
+    xlab(label = "Type") +
+    ylab(label = "Cost of Damages")
+```
+
+Through this graph we can see that Tornadoes, Wind, and Flooding cause more damage than their counterparts.  It is no coincidence that they also were among the most frequent to occur, as examined in the previous plot.
+
+
+
+
+
+
